@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: haven-postgres
+    environment:
+      POSTGRES_DB: haven
+      POSTGRES_USER: haven
+      POSTGRES_PASSWORD: haven_dev
+    ports:
+      - '5432:5432'
+    volumes:
+      - haven-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U haven -d haven']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: haven-redis
+    # Presence + socket.io adapter only: no durable data lives here.
+    command: redis-server --save '' --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - '6379:6379'
+
+volumes:
+  haven-pgdata:
