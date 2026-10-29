@@ -1,5 +1,5 @@
 import type { ExtendedError } from 'socket.io';
-import { pool } from '../../infra/db/pool.js';
+import { isSessionLive } from '../../infra/db/repositories/identity.js';
 import { getMembershipContext } from '../../infra/db/repositories/location.js';
 import { verifyAccessToken } from '../../lib/token.js';
 import type { HavenSocket } from '../types.js';
@@ -39,24 +39,7 @@ export const authenticate = async (
       return;
     }
 
-    const { rows } = await pool.query<{ ok: boolean }>(
-      `
-      SELECT true AS ok
-        FROM auth_sessions s
-        JOIN devices d ON d.id = s.device_id
-        JOIN users   u ON u.id = s.user_id
-       WHERE s.id = $1
-         AND s.user_id = $2
-         AND s.device_id = $3
-         AND s.revoked_at IS NULL
-         AND s.expires_at > now()
-         AND d.revoked_at IS NULL
-         AND u.deleted_at IS NULL
-      `,
-      [claims.sid, claims.sub, claims.did],
-    );
-
-    if (rows.length === 0) {
+    if (!(await isSessionLive(claims))) {
       next(Object.assign(new Error('unauthenticated'), { data: { code: 'unauthenticated' } }));
       return;
     }

@@ -14,16 +14,28 @@ import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { restoreSession } from '../src/core/api/account';
+import { DEMO_MODE } from '../src/dev/demoMode';
+import { selectStage, useSession } from '../src/state/session';
+import { STAGE_HOME } from '../src/state/sessionReducer';
 import { color } from '../src/ui/theme/tokens';
 
 void SplashScreen.preventAutoHideAsync();
 
 /**
- * Providers only — routing files hold no product logic (docs/01 §3).
+ * Providers and route guards only — routing files hold no product logic
+ * (docs/01 §3).
  *
- * The splash stays up until Inter has loaded. Rendering first and swapping
- * fonts in after would shift every label on the map once, which reads as a
- * glitch on the very first frame of the app.
+ * The splash stays up until Inter has loaded and the stored session has been
+ * checked. Rendering first would shift every label once fonts swap in, and
+ * flash the sign-in screen at someone who is already signed in.
+ *
+ * Which group is reachable is decided by one value, the session stage
+ * (state/sessionReducer.ts). When it changes, say from 'auth' to 'circle'
+ * after a code is verified, the screen that just became unreachable is
+ * replaced by that stage's home (STAGE_HOME), so the auth screens never
+ * navigate forward themselves. The redirect is explicit: the default target
+ * is the navigator's anchor, "/", which is itself guarded before sign-in.
  */
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -32,8 +44,14 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+  const stage = useSession(selectStage);
+  const home = DEMO_MODE ? '/' : STAGE_HOME[stage];
 
-  const ready = fontsLoaded || fontError !== null;
+  useEffect(() => {
+    if (!DEMO_MODE) void restoreSession();
+  }, []);
+
+  const ready = (fontsLoaded || fontError !== null) && (DEMO_MODE || stage !== 'restoring');
 
   useEffect(() => {
     if (ready) void SplashScreen.hideAsync();
@@ -51,7 +69,27 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: color.background },
             animation: 'fade',
           }}
-        />
+        >
+          <Stack.Protected guard={DEMO_MODE || stage === 'app'} redirectTo={home}>
+            <Stack.Screen name="(app)" />
+          </Stack.Protected>
+          <Stack.Protected
+            guard={!DEMO_MODE && (stage === 'name' || stage === 'circle')}
+            redirectTo={home}
+          >
+            <Stack.Screen name="(onboarding)" />
+          </Stack.Protected>
+          <Stack.Protected guard={!DEMO_MODE && stage === 'auth'} redirectTo={home}>
+            <Stack.Screen name="(auth)" />
+          </Stack.Protected>
+          <Stack.Protected guard={!DEMO_MODE && stage === 'unreachable'} redirectTo={home}>
+            <Stack.Screen name="unreachable" />
+          </Stack.Protected>
+          {/* Reachable at every stage: it sorts out sign-in itself. */}
+          <Stack.Protected guard={!DEMO_MODE} redirectTo={home}>
+            <Stack.Screen name="join/[code]" options={{ animation: 'slide_from_bottom' }} />
+          </Stack.Protected>
+        </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

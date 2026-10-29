@@ -1,3 +1,5 @@
+import './dotenv.js';
+
 import { z } from 'zod';
 
 /**
@@ -18,6 +20,20 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32),
 
   OPEN_METEO_BASE_URL: z.url().default('https://api.open-meteo.com/v1'),
+
+  /**
+   * Sign-in code delivery. Unset means codes are written to the log instead
+   * of emailed — fine on a laptop, refused in production (infra/email).
+   */
+  RESEND_API_KEY: z.string().min(1).optional(),
+  EMAIL_FROM: z.string().min(3).default('Haven <onboarding@resend.dev>'),
+
+  /**
+   * Set behind a hosting platform's proxy so per-IP rate limits see the
+   * client's address rather than the proxy's. Leave off when the server is
+   * reached directly, or X-Forwarded-For becomes a way to dodge them.
+   */
+  TRUST_PROXY: z.stringbool().default(false),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });

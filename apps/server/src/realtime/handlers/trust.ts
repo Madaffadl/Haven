@@ -7,6 +7,7 @@ import {
   seedAnchorFromCurrentPosition,
 } from '../../infra/db/repositories/location.js';
 import { applyTrustChange, clearAnchors } from '../../infra/db/repositories/trust.js';
+import { limitTrustChange } from '../../infra/redis/rateLimit.js';
 import type { HandlerContext } from '../types.js';
 import { rebroadcastCircle } from './presence.js';
 
@@ -42,6 +43,25 @@ export const handleSetTrust = async (
   }
 
   const { circleId, mode, fuzzRadiusM } = parsed.data;
+
+  // Each change costs a transaction and a per-viewer bootstrap for every
+  // member of every affected circle, so a toggle tapped in a loop is limited.
+  // Never on the way to ghost: hiding is the escape hatch, and a rate limit
+  // must not be able to stand between someone and going dark.
+  if (mode !== 'ghost') {
+    const limit = await limitTrustChange(userId);
+    if (!limit.allowed) {
+      ack({
+        ok: false,
+        error: {
+          code: 'rate_limited',
+          message: 'too many Trust Mode changes',
+          retryAfterMs: limit.retryAfterMs,
+        },
+      });
+      return;
+    }
+  }
 
   if (circleId && !(await isMember(userId, circleId))) {
     ack({ ok: false, error: { code: 'not_a_member', message: 'not a member of this circle' } });

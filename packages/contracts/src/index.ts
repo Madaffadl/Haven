@@ -4,3 +4,6 @@ export * from './context';
 export * from './presence';
 export * from './nudge';
 export * from './socket';
+export * from './api';
+export * from './auth';
+export * from './circle';

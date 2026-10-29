@@ -1,5 +1,5 @@
 import type { MemberPresence, MemberProfile } from '@haven/contracts';
-import { ChevronLeft, EyeOff, MapPin } from 'lucide-react-native';
+import { ChevronLeft, EyeOff, LogOut, MapPin, UserPlus } from 'lucide-react-native';
 import { memo, useMemo, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
@@ -41,6 +41,9 @@ interface MemberSheetProps {
   onSelect: (userId: string | null) => void;
   index: number;
   onIndexChange: (index: number) => void;
+  /** Omitted in demo mode, where there is no backend to invite into. */
+  onInvite?: () => void;
+  onSignOut?: () => void;
 }
 
 /**
@@ -58,6 +61,8 @@ export const MemberSheet = ({
   onSelect,
   index,
   onIndexChange,
+  onInvite,
+  onSignOut,
 }: MemberSheetProps) => {
   const heights = useSheetHeights();
   const now = useNow();
@@ -80,11 +85,25 @@ export const MemberSheet = ({
       </HText>
     </View>
   ) : (
-    <View>
-      <HText variant="title">Your circle</HText>
-      <HText variant="footnote" tone="secondary" tabular>
-        {`${online} of ${members.length} online`}
-      </HText>
+    <View style={styles.headerRow}>
+      <View style={styles.headerText}>
+        <HText variant="title">Your circle</HText>
+        <HText variant="footnote" tone="secondary" tabular>
+          {/* An empty circle is the moment to invite, so say so instead of "1 of 1 online". */}
+          {members.length <= 1 && onInvite
+            ? 'Just you so far. Invite someone to see them here.'
+            : `${online} of ${members.length} online`}
+        </HText>
+      </View>
+      {onInvite ? (
+        <PressableScale
+          accessibilityLabel="Invite someone"
+          onPress={onInvite}
+          style={styles.inviteButton}
+        >
+          <UserPlus size={size.icon.md} color={color.text.onAccent} strokeWidth={2.25} />
+        </PressableScale>
+      ) : null}
     </View>
   );
 
@@ -112,15 +131,30 @@ export const MemberSheet = ({
             onBack={() => onSelect(null)}
           />
         ) : (
-          members.map((member) => (
-            <MemberRow
-              key={member.userId}
-              member={member}
-              profile={profiles?.[member.userId]}
-              now={now}
-              onPress={() => onSelect(member.userId)}
-            />
-          ))
+          <>
+            {members.map((member) => (
+              <MemberRow
+                key={member.userId}
+                member={member}
+                profile={profiles?.[member.userId]}
+                now={now}
+                onPress={() => onSelect(member.userId)}
+              />
+            ))}
+            {/* Until there is a settings screen, the end of the list is home to sign-out. */}
+            {onSignOut ? (
+              <PressableScale
+                accessibilityLabel="Sign out"
+                onPress={onSignOut}
+                style={styles.signOut}
+              >
+                <LogOut size={size.icon.sm} color={color.text.tertiary} strokeWidth={2} />
+                <HText variant="footnote" tone="tertiary">
+                  Sign out
+                </HText>
+              </PressableScale>
+            ) : null}
+          </>
         )}
       </ScrollView>
     </BottomSheet>
@@ -293,6 +327,24 @@ const Tile = ({ label, spoken, children }: TileProps) => (
 );
 
 const styles = StyleSheet.create({
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  headerText: { flex: 1 },
+  inviteButton: {
+    width: size.touchMin,
+    height: size.touchMin,
+    borderRadius: size.touchMin / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.accent.peach,
+  },
+  signOut: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: space.xs,
+    marginTop: space.md,
+    paddingRight: space.sm,
+  },
   scroll: { paddingTop: space.xs, gap: space.xs },
   row: {
     flexDirection: 'row',

@@ -1,12 +1,33 @@
 import Fastify from 'fastify';
 
 import { env } from './config/env.js';
+import { errorHandler, notFoundHandler } from './http/errors.js';
+import { authRoutes } from './http/routes/auth.js';
+import { circleRoutes } from './http/routes/circles.js';
+import { meRoutes } from './http/routes/me.js';
 import { closePool, pool } from './infra/db/pool.js';
 import { closeRedis, redis } from './infra/redis/client.js';
 import { logger } from './lib/logger.js';
 import { createGateway } from './realtime/gateway.js';
 
-const app = Fastify({ loggerInstance: logger });
+const app = Fastify({
+  loggerInstance: logger,
+  trustProxy: env.TRUST_PROXY,
+  // Every REST body is a few hundred bytes. Matches the socket's 16 KB cap,
+  // for the same reason: reject oversized input before parsing it.
+  bodyLimit: 16 * 1024,
+});
+
+app.setErrorHandler(errorHandler);
+app.setNotFoundHandler(notFoundHandler);
+
+// Attached before listen so routes can reach the sockets: a REST call that
+// changes membership has to update live connections too.
+const io = createGateway(app.server);
+
+void app.register(authRoutes({ io }));
+void app.register(meRoutes({ io }));
+void app.register(circleRoutes({ io }));
 
 app.get('/health', async (_request, reply) => {
   // Checks dependencies, not just liveness: a node that cannot reach Postgres
@@ -21,8 +42,6 @@ app.get('/health', async (_request, reply) => {
 
 const start = async (): Promise<void> => {
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
-
-  createGateway(app.server);
   logger.info({ port: env.PORT }, 'haven server listening');
 };
 

@@ -25,6 +25,32 @@ export type AccessClaims = z.infer<typeof claimsSchema>;
 
 const b64urlToBuffer = (value: string): Buffer => Buffer.from(value, 'base64url');
 
+/**
+ * Short on purpose. Revocation is enforced against the session row on every
+ * socket connect and REST call, so the TTL only bounds how long a stolen
+ * token works against a server that is somehow skipping that check.
+ */
+export const ACCESS_TOKEN_TTL_S = 15 * 60;
+
+/** The only header this module ever writes, and the only one it will accept. */
+const HEADER_B64 = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+
+export const signAccessToken = (
+  claims: Pick<AccessClaims, 'sub' | 'sid' | 'did' | 'scope'>,
+  ttlS: number = ACCESS_TOKEN_TTL_S,
+  now: number = Date.now(),
+): { token: string; expiresAt: Date } => {
+  const iat = Math.floor(now / 1000);
+  const exp = iat + ttlS;
+
+  const payloadB64 = Buffer.from(JSON.stringify({ ...claims, iat, exp })).toString('base64url');
+  const signature = createHmac('sha256', env.JWT_SECRET)
+    .update(`${HEADER_B64}.${payloadB64}`)
+    .digest('base64url');
+
+  return { token: `${HEADER_B64}.${payloadB64}.${signature}`, expiresAt: new Date(exp * 1000) };
+};
+
 export const verifyAccessToken = (token: string): AccessClaims | null => {
   const parts = token.split('.');
   if (parts.length !== 3) return null;

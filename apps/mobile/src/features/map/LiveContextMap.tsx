@@ -7,8 +7,9 @@ import Mapbox, {
   ShapeSource,
   StyleImport,
 } from '@rnmapbox/maps';
+import type { TrustMode } from '@haven/contracts';
 import Constants from 'expo-constants';
-import { useCallback, useEffect, useMemo, useRef, type ComponentRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { StyleSheet } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import { useShallow } from 'zustand/react/shallow';
@@ -45,6 +46,8 @@ interface LiveContextMapProps {
    * than hidden behind the glass.
    */
   bottomInset: number;
+  /** Badged on your own marker; see AvatarMarker. */
+  selfTrustMode: TrustMode;
 }
 
 type FuzzFeature = GeoJSON.Feature<GeoJSON.Polygon, { mode: 'approximate' | 'precise' }>;
@@ -88,6 +91,7 @@ export const LiveContextMap = ({
   selectedId,
   onSelect,
   bottomInset,
+  selfTrustMode,
 }: LiveContextMapProps) => {
   const camera = useRef<CameraHandle>(null);
   const reduceMotion = useReducedMotion();
@@ -113,10 +117,14 @@ export const LiveContextMap = ({
     [bottomInset],
   );
 
-  // Frame everyone once, when the circle first has positions to show.
+  // Frame everyone once, when the circle first has positions to show and the
+  // map can take a camera command. Positions can arrive first (the demo
+  // circle does, synchronously), and a fitBounds sent before the native map
+  // has loaded is silently dropped, leaving the camera on the default globe.
+  const [mapLoaded, setMapLoaded] = useState(false);
   const framed = useRef(false);
   useEffect(() => {
-    if (framed.current || members.length === 0) return;
+    if (!mapLoaded || framed.current || members.length === 0) return;
     const bounds = boundsFor(members.map((m) => m.coordinate));
     if (!bounds) return;
     framed.current = true;
@@ -126,7 +134,7 @@ export const LiveContextMap = ({
       [padding.paddingTop, padding.paddingRight, padding.paddingBottom, padding.paddingLeft],
       duration,
     );
-  }, [members, padding, duration]);
+  }, [mapLoaded, members, padding, duration]);
 
   // Follow the selection.
   const selected = members.find((m) => m.userId === selectedId);
@@ -160,6 +168,7 @@ export const LiveContextMap = ({
       logoPosition={{ bottom: bottomInset + 8, left: 12 }}
       attributionPosition={{ bottom: bottomInset + 8, right: 12 }}
       onPress={() => onSelect(null)}
+      onDidFinishLoadingMap={() => setMapLoaded(true)}
     >
       {CUSTOM_STYLE_URL ? null : <StyleImport id="basemap" existing config={havenMapConfig} />}
 
@@ -214,6 +223,7 @@ export const LiveContextMap = ({
               profile={profiles?.[member.userId]}
               selected={isSelected}
               isSelf={member.userId === selfId}
+              selfTrustMode={selfTrustMode}
               now={now}
               onPress={handleSelect}
             />

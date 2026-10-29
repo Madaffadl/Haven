@@ -1,4 +1,4 @@
-import type { MemberPresence, MemberProfile } from '@haven/contracts';
+import type { MemberPresence, MemberProfile, TrustMode } from '@haven/contracts';
 import * as Haptics from 'expo-haptics';
 import { Clock } from 'lucide-react-native';
 import { memo, useEffect, useRef, useState } from 'react';
@@ -24,6 +24,8 @@ import {
   markerAccessibilityLabel,
   nameOf,
 } from './presenceCopy';
+import { MODE_VISUALS } from '../trust-mode/modeVisuals';
+import { selfPrivacyPhrase } from '../trust-mode/trustCopy';
 import { glyphMotion } from './weatherModel';
 
 const RING_BOX = size.avatar + 2 * (size.ringGap + size.ringStroke);
@@ -33,6 +35,12 @@ interface AvatarMarkerProps {
   profile: MemberProfile | undefined;
   selected: boolean;
   isSelf: boolean;
+  /**
+   * The viewer's own Trust Mode, for their own marker only. The server always
+   * shows you yourself as precise, so without this badge nothing on your map
+   * would tell you that your circle sees less.
+   */
+  selfTrustMode?: TrustMode;
   /** Wall clock, ticked by the map, so staleness updates while the app is open. */
   now: number;
   onPress: (userId: string) => void;
@@ -67,7 +75,7 @@ const useChangeCount = (value: number | undefined): number => {
  * the visual parts are hidden from assistive tech so nothing is read twice.
  */
 export const AvatarMarker = memo(
-  ({ member, profile, selected, isSelf, now, onPress }: AvatarMarkerProps) => {
+  ({ member, profile, selected, isSelf, selfTrustMode, now, onPress }: AvatarMarkerProps) => {
     const reduceMotion = useReducedMotion();
     const weatherChanges = useChangeCount(member.weather?.code);
 
@@ -95,10 +103,15 @@ export const AvatarMarker = memo(
     const name = nameOf(profile);
     const accent = profile?.accentHex ?? color.accent.lavender;
     const stale = isStale(member.capturedAt, now);
+    const privacy = isSelf && selfTrustMode && selfTrustMode !== 'precise' ? selfTrustMode : null;
+    const PrivacyIcon = privacy ? MODE_VISUALS[privacy].icon : null;
 
     return (
       <PressableScale
-        accessibilityLabel={markerAccessibilityLabel(member, profile, now)}
+        accessibilityLabel={
+          markerAccessibilityLabel(member, profile, now) +
+          (privacy ? `. ${selfPrivacyPhrase(privacy)}` : '')
+        }
         accessibilityHint="Shows details"
         accessibilityState={{ selected }}
         hitSlop={4}
@@ -158,6 +171,12 @@ export const AvatarMarker = memo(
               <Clock size={10} color={color.text.primary} strokeWidth={2.5} />
             </View>
           ) : null}
+
+          {PrivacyIcon ? (
+            <View style={styles.privacy}>
+              <PrivacyIcon size={10} color={color.text.onAccent} strokeWidth={2.75} />
+            </View>
+          ) : null}
         </Animated.View>
       </PressableScale>
     );
@@ -205,6 +224,19 @@ const styles = StyleSheet.create({
     height: BADGE,
     borderRadius: BADGE / 2,
     backgroundColor: palette.navy700,
+    borderWidth: 1.5,
+    borderColor: color.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  privacy: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: BADGE,
+    height: BADGE,
+    borderRadius: BADGE / 2,
+    backgroundColor: color.accent.lavender,
     borderWidth: 1.5,
     borderColor: color.background,
     alignItems: 'center',

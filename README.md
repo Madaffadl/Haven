@@ -7,16 +7,22 @@ weather, timezone, movement — so nobody has to ask.
 - **Phase 1 — architecture & data model:** [`docs/01-architecture.md`](docs/01-architecture.md)
 - **Phase 2 — realtime & Trust Mode:** [`docs/02-realtime-and-privacy.md`](docs/02-realtime-and-privacy.md)
 - **Phase 3 — Live Context Map:** [`docs/03-live-context-map.md`](docs/03-live-context-map.md)
+- **Accounts & invites:** [`docs/04-accounts-and-invites.md`](docs/04-accounts-and-invites.md)
 - **Schema:** [`infra/db/migrations/`](infra/db/migrations/)
 - **Shared types:** [`packages/contracts/src/`](packages/contracts/src/)
 
 ```bash
 pnpm install
-pnpm db:up          # postgres+postgis, redis
+cp apps/server/.env.example apps/server/.env   # DATABASE_URL, REDIS_URL, JWT_SECRET
 pnpm db:migrate
-pnpm server
+pnpm server         # curl localhost:4000/health → {"ok":true,"db":true,"redis":true}
 pnpm mobile
 ```
+
+Postgres and Redis can be free hosted services (Neon and Upstash, with
+step-by-step instructions in [`apps/server/.env.example`](apps/server/.env.example))
+or local containers via `pnpm db:up` (Docker). The map also runs with no
+backend at all against a sample circle: see [docs/03 §10](docs/03-live-context-map.md).
 
 ## Status
 
@@ -24,9 +30,10 @@ pnpm mobile
 |---|---|---|---|
 | Live Context Map | ✅ | ✅ socket fan-out | ✅ map, avatars, ring, weather, sheet |
 | Tap-to-Nudge | ✅ | ✅ | ⏳ burst animation |
-| Trust Mode | ✅ | ✅ fuzzing + tests | ✅ discs + client privacy · ⏳ toggle UI |
+| Trust Mode | ✅ | ✅ fuzzing + tests | ✅ discs, client privacy, toggle (all circles at once) · ⏳ per-circle |
 | Home Screen Widget | ✅ | ⏳ REST endpoint | ⏳ |
+| Accounts & invites ([docs/04](docs/04-accounts-and-invites.md)) | ✅ | ✅ email sign-in, circles, invites | ✅ onboarding + invite/join screens |
 
-Phase 3 is verified by typecheck, 78 unit tests and production Metro bundles
-for both platforms, but has **not yet been run on a device** (needs a Mapbox
-token and a development build).
+Verified by typecheck, 59 server and 114 mobile unit tests, and the demo map
+running on the iOS simulator. The backend has **not yet run against a real
+database**: nothing is configured until Neon and Redis are set up.

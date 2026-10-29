@@ -67,3 +67,39 @@ export const limitNudgeFromSender = (userId: string, perMinute: number) =>
 
 export const limitNudgeToRecipient = (senderId: string, recipientId: string, perMinute: number) =>
   consume(`rl:nudge:to:${recipientId}:${senderId}`, perMinute, 60_000);
+
+/**
+ * Sign-in code requests, per address. Each one sends a real email from a
+ * free-tier quota, and each one resets the guess counter on the code, so this
+ * limit is what actually bounds code guessing.
+ */
+export const limitSignInCodeForEmail = (email: string) =>
+  consume(`rl:signin:email:${email}`, 3, 15 * 60_000);
+
+/**
+ * Per client address, so one script cannot spend the whole day's email quota
+ * on other people's inboxes. Loose enough for a household behind one NAT.
+ */
+export const limitSignInCodeForIp = (ip: string) => consume(`rl:signin:ip:${ip}`, 20, 60 * 60_000);
+
+/**
+ * Session refreshes per client address. Keyed by IP because the caller is by
+ * definition not authenticated yet. A healthy phone needs about four an hour;
+ * the headroom is for a household sharing one address.
+ */
+export const limitRefresh = (ip: string) => consume(`rl:refresh:ip:${ip}`, 60, 60 * 60_000);
+
+/**
+ * Looking up and accepting invites. A code is a bearer credential for
+ * someone's location, so guessing them must be impractical even though the
+ * space is large.
+ */
+export const limitInviteLookup = (userId: string) =>
+  consume(`rl:invite:${userId}`, 20, 10 * 60_000);
+
+/**
+ * Trust Mode changes that are not a move to ghost (see handlers/trust.ts:
+ * hiding is never limited). Ten a minute is far beyond anyone deciding
+ * between options, and well short of a script.
+ */
+export const limitTrustChange = (userId: string) => consume(`rl:trust:${userId}`, 10, 60_000);

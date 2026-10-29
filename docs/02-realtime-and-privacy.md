@@ -174,6 +174,33 @@ still forgets the old one. The bootstraps have to be per viewer, because a
 room-wide bootstrap built from one member's view would include that member's
 own precise position and send it to everyone.
 
+Changes are rate-limited (10 a minute) **except changes to ghost**. Hiding
+is the escape hatch, and no limit may stand in its way.
+
+### The toggle in the app
+
+A chip on the map always shows what you share now (Precise / Approximate /
+Hidden) and opens the Trust Mode screen
+([`features/trust-mode/`](../apps/mobile/src/features/trust-mode/)).
+
+- **It sets the global default** (`circleId: null`), so one tap covers every
+  circle. Per-circle overrides exist in the schema but have no UI yet.
+  Approximate therefore always uses the neighbourhood radius (1 km disc,
+  ~2 km cell). The global default has no radius column, so any other radius
+  would only last until the next location report re-derived the anchor at
+  1 km.
+- **Your own mode comes from `me.trustMode`, never from presence.** The
+  projection shows every viewer themselves as precise, so presence cannot
+  say what you share. A lavender badge on your own marker is the one sign on
+  your map that your circle sees less.
+- **Not optimistic.** The checkmark moves only once the server acks.
+  Offline, the request fails immediately instead of being buffered, so a
+  change can never land later than the screen said. A user must never
+  believe they are hidden while still being broadcast.
+- **Follow-up for location upload** (not built yet): while a Trust Mode
+  change is pending or has failed, hold back location reports. Otherwise the
+  server would keep fanning out a mode the user just tried to leave.
+
 ---
 
 ## 4. Battery budget
@@ -266,17 +293,20 @@ correction into 1° bands, in both TypeScript and SQL.
 
 ## 8. Known limits & next steps
 
-- **Migrations not executed.** No Postgres on the dev machine yet. The TS ↔
-  SQL agreement on `cell_key` is asserted by format only. A Postgres
-  integration test that runs both implementations on the same points is the
-  first thing to add once a database is available.
+- **Migrations executed only on PGlite.** All eight apply cleanly through
+  the runner on PGlite (PostgreSQL 18, PostGIS 3.6), but not yet on a server
+  Postgres 16/17, and the repository queries have not run against any
+  database. The TS ↔ SQL agreement on `cell_key` is asserted by format only.
+  A Postgres integration test that runs both implementations on the same
+  points is the first thing to add once a database is available.
 - **`anyLiveViewers` uses `fetchSockets()`** across the cluster on each
   report. That's fine for circles capped at 16, but it should move to a
   Redis counter before multi-region.
 - **Push transport** is an interface with a logging implementation.
   APNs/FCM need credentials.
-- **REST routes** (auth, circles, invites, the widget endpoint) aren't
-  written yet. The widget endpoint will reuse `haven_circle_presence()`.
+- **REST routes:** auth, circles and invites are written
+  ([docs/04](04-accounts-and-invites.md)). The widget endpoint isn't yet; it
+  will reuse `haven_circle_presence()`.
 - **zod is on 4.6.7**, upgraded from 3.25.76 to fix GHSA-mrhx-c7xc-m3w5
   (memory exhaustion via unbounded arrays). `pnpm audit` is clean. The
   bounded array schemas and the 16 KB `maxHttpBufferSize` cap were kept as
