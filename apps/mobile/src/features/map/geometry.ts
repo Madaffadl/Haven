@@ -1,6 +1,8 @@
 import type { Coordinate } from '@haven/contracts';
 import { EARTH_RADIUS_M } from '@haven/contracts';
 
+import { size } from '../../ui/theme/tokens';
+
 /**
  * Map geometry. Pure, so the shapes the map draws are tested, not eyeballed.
  */
@@ -72,14 +74,33 @@ export interface PixelOffset {
  * of you is here". Members within `thresholdM` of each other are arranged on
  * a small circle instead. Ordering is by userId, so positions are stable
  * across updates and nobody swaps places as GPS jitters.
+ *
+ * The circle grows with the group so that neighbours on it stay
+ * `clearancePx` apart, centre to centre: a whole marker plus room for the
+ * weather and staleness badges that stick out past its edge. A fixed spread
+ * let two avatars sit 40 px apart with 54 px rings, so one's weather badge
+ * landed on the other.
  */
-export const fanOut = (
-  members: readonly { userId: string; coordinate: Coordinate }[],
+export const FAN_CLEARANCE_PX = size.marker + 12;
+
+export interface FanGroup<M> {
+  /** Where the group's marker is pinned: the first member's own position. */
+  anchor: Coordinate;
+  members: { member: M; offset: PixelOffset }[];
+}
+
+/**
+ * The groups themselves, for rendering: the map draws one marker per group
+ * with the avatars laid out inside it. Shifting separate markers by their
+ * anchor only works within half a marker's width, and a group needs more.
+ */
+export const fanOutGroups = <M extends { userId: string; coordinate: Coordinate }>(
+  members: readonly M[],
   thresholdM = 25,
-  spreadPx = 20,
-): Map<string, PixelOffset> => {
+  clearancePx = FAN_CLEARANCE_PX,
+): FanGroup<M>[] => {
   const sorted = [...members].sort((a, b) => a.userId.localeCompare(b.userId));
-  const groups: (typeof sorted)[] = [];
+  const groups: M[][] = [];
 
   for (const member of sorted) {
     const group = groups.find((g) => {
@@ -90,25 +111,43 @@ export const fanOut = (
     else groups.push([member]);
   }
 
-  const offsets = new Map<string, PixelOffset>();
-  for (const group of groups) {
+  return groups.map((group) => {
     if (group.length === 1) {
-      const only = group[0];
-      if (only) offsets.set(only.userId, { dx: 0, dy: 0 });
-      continue;
+      return {
+        anchor: group[0]!.coordinate,
+        members: [{ member: group[0]!, offset: { dx: 0, dy: 0 } }],
+      };
     }
-    group.forEach((member, index) => {
-      // Start at 12 o'clock and go clockwise.
-      const angle = -Math.PI / 2 + (2 * Math.PI * index) / group.length;
-      offsets.set(member.userId, {
-        dx: Math.round(Math.cos(angle) * spreadPx),
-        dy: Math.round(Math.sin(angle) * spreadPx),
-      });
-    });
-  }
-
-  return offsets;
+    // Radius at which adjacent points on the circle are one clearance apart.
+    const radius = clearancePx / (2 * Math.sin(Math.PI / group.length));
+    return {
+      anchor: group[0]!.coordinate,
+      members: group.map((member, index) => {
+        // Start at 12 o'clock and go clockwise.
+        const angle = -Math.PI / 2 + (2 * Math.PI * index) / group.length;
+        return {
+          member,
+          offset: {
+            dx: Math.round(Math.cos(angle) * radius),
+            dy: Math.round(Math.sin(angle) * radius),
+          },
+        };
+      }),
+    };
+  });
 };
+
+/** Each member's offset, by userId. */
+export const fanOut = (
+  members: readonly { userId: string; coordinate: Coordinate }[],
+  thresholdM = 25,
+  clearancePx = FAN_CLEARANCE_PX,
+): Map<string, PixelOffset> =>
+  new Map(
+    fanOutGroups(members, thresholdM, clearancePx).flatMap((group) =>
+      group.members.map(({ member, offset }) => [member.userId, offset] as const),
+    ),
+  );
 
 // ---------------------------------------------------------------------------
 // Camera

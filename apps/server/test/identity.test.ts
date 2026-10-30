@@ -3,15 +3,22 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 import {
+  ACCENT_COLORS,
   INVITE_CODE_ALPHABET,
   emailSchema,
   inviteCodeSchema,
   routes,
   signInCodeSchema,
+  updateMeSchema,
 } from '@haven/contracts';
 
 import { defaultInviteUses, generateInviteCode } from '../src/domain/circle/inviteCode.js';
-import { ACCENTS, defaultDisplayName, pickAccent } from '../src/domain/identity/profile.js';
+import {
+  DELETED_DISPLAY_NAME,
+  defaultDisplayName,
+  pickAccent,
+  tombstoneEmail,
+} from '../src/domain/identity/profile.js';
 import { hashRefreshToken, newRefreshToken } from '../src/domain/identity/refreshToken.js';
 import {
   generateSignInCode,
@@ -78,9 +85,18 @@ describe('new account defaults', () => {
     assert.ok(defaultDisplayName(`${'a'.repeat(80)}@mail.com`).length <= 40);
   });
 
+  it('anonymise a deleted account without breaking the users table rules', () => {
+    const id = '0192d4e0-7b3a-7c1e-9f2a-3b4c5d6e7f01';
+    // Still a valid, unique address (the CHECK needs an identifier), but one
+    // that can never be signed into: .invalid is reserved by RFC 2606.
+    assert.equal(tombstoneEmail(id), `deleted+${id}@deleted.invalid`);
+    assert.ok(emailSchema.safeParse(tombstoneEmail(id)).success);
+    assert.ok(DELETED_DISPLAY_NAME.length >= 1 && DELETED_DISPLAY_NAME.length <= 40);
+  });
+
   it('picks accents the users table accepts', () => {
-    for (const accent of ACCENTS) assert.match(accent, /^#[0-9a-f]{6}$/i);
-    assert.ok((ACCENTS as readonly string[]).includes(pickAccent()));
+    for (const accent of ACCENT_COLORS) assert.match(accent, /^#[0-9a-f]{6}$/i);
+    assert.ok((ACCENT_COLORS as readonly string[]).includes(pickAccent()));
   });
 });
 
@@ -126,6 +142,14 @@ describe('invite codes', () => {
 });
 
 describe('REST contracts', () => {
+  it('accept partial profile updates but not empty ones or off-palette accents', () => {
+    assert.ok(updateMeSchema.safeParse({ displayName: 'Maya' }).success);
+    assert.ok(updateMeSchema.safeParse({ accentHex: ACCENT_COLORS[1] }).success);
+    assert.equal(updateMeSchema.safeParse({}).success, false);
+    assert.equal(updateMeSchema.safeParse({ accentHex: '#000000' }).success, false);
+    assert.equal(updateMeSchema.safeParse({ displayName: '   ' }).success, false);
+  });
+
   it('normalise email before validating it', () => {
     assert.equal(emailSchema.parse('  Maya@Mail.COM '), 'maya@mail.com');
     assert.equal(emailSchema.safeParse('maya@').success, false);

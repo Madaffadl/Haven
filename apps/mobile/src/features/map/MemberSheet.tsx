@@ -1,5 +1,5 @@
 import type { MemberPresence, MemberProfile } from '@haven/contracts';
-import { ChevronLeft, EyeOff, LogOut, MapPin, UserPlus } from 'lucide-react-native';
+import { ChevronLeft, EyeOff, MapPin, UserPlus } from 'lucide-react-native';
 import { memo, useMemo, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
@@ -11,6 +11,7 @@ import { BottomSheet } from '../../ui/primitives/BottomSheet';
 import { HText } from '../../ui/primitives/HText';
 import { PressableScale } from '../../ui/primitives/PressableScale';
 import { color, radius, size, space } from '../../ui/theme/tokens';
+import { NudgeBar } from '../nudge/NudgeBar';
 import { BatteryRing } from './BatteryRing';
 import { WeatherGlyph } from './WeatherGlyph';
 import { batteryDescription } from './batteryModel';
@@ -37,13 +38,14 @@ const VIEWER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 interface MemberSheetProps {
   circleId: string;
+  /** You can't nudge yourself, so your own detail has no nudge bar. */
+  selfId: string;
   selectedId: string | null;
   onSelect: (userId: string | null) => void;
   index: number;
   onIndexChange: (index: number) => void;
   /** Omitted in demo mode, where there is no backend to invite into. */
   onInvite?: () => void;
-  onSignOut?: () => void;
 }
 
 /**
@@ -57,12 +59,12 @@ interface MemberSheetProps {
  */
 export const MemberSheet = ({
   circleId,
+  selfId,
   selectedId,
   onSelect,
   index,
   onIndexChange,
   onInvite,
-  onSignOut,
 }: MemberSheetProps) => {
   const heights = useSheetHeights();
   const now = useNow();
@@ -125,36 +127,23 @@ export const MemberSheet = ({
       >
         {selected ? (
           <MemberDetail
+            circleId={circleId}
             member={selected}
             profile={selectedProfile}
+            isSelf={selected.userId === selfId}
             now={now}
             onBack={() => onSelect(null)}
           />
         ) : (
-          <>
-            {members.map((member) => (
-              <MemberRow
-                key={member.userId}
-                member={member}
-                profile={profiles?.[member.userId]}
-                now={now}
-                onPress={() => onSelect(member.userId)}
-              />
-            ))}
-            {/* Until there is a settings screen, the end of the list is home to sign-out. */}
-            {onSignOut ? (
-              <PressableScale
-                accessibilityLabel="Sign out"
-                onPress={onSignOut}
-                style={styles.signOut}
-              >
-                <LogOut size={size.icon.sm} color={color.text.tertiary} strokeWidth={2} />
-                <HText variant="footnote" tone="tertiary">
-                  Sign out
-                </HText>
-              </PressableScale>
-            ) : null}
-          </>
+          members.map((member) => (
+            <MemberRow
+              key={member.userId}
+              member={member}
+              profile={profiles?.[member.userId]}
+              now={now}
+              onPress={() => onSelect(member.userId)}
+            />
+          ))
         )}
       </ScrollView>
     </BottomSheet>
@@ -231,18 +220,23 @@ MemberRow.displayName = 'MemberRow';
 // ---------------------------------------------------------------------------
 
 interface MemberDetailProps {
+  circleId: string;
   member: MemberPresence;
   profile: MemberProfile | undefined;
+  isSelf: boolean;
   now: number;
   onBack: () => void;
 }
 
-const MemberDetail = ({ member, profile, now, onBack }: MemberDetailProps) => {
+const MemberDetail = ({ circleId, member, profile, isSelf, now, onBack }: MemberDetailProps) => {
   const accent = profile?.accentHex ?? color.accent.lavender;
   const local = localTime(member.timezone, now, VIEWER_TZ);
 
   return (
     <View>
+      {isSelf ? null : (
+        <NudgeBar circleId={circleId} toUserId={member.userId} name={nameOf(profile)} />
+      )}
       <View style={styles.tiles}>
         <Tile label="Battery" spoken={batteryDescription(member.battery)}>
           <BatteryRing battery={member.battery} accent={accent} size={56}>
@@ -336,14 +330,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: color.accent.peach,
-  },
-  signOut: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: space.xs,
-    marginTop: space.md,
-    paddingRight: space.sm,
   },
   scroll: { paddingTop: space.xs, gap: space.xs },
   row: {

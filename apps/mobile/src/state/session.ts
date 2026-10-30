@@ -3,6 +3,7 @@ import { create } from 'zustand';
 
 import {
   applyCircleJoined,
+  applyCircleLeft,
   applyMe,
   applySignedIn,
   applySignedOut,
@@ -19,6 +20,7 @@ interface SessionStore extends SessionState {
     signedOut: () => void;
     me: (me: Me) => void;
     circleJoined: (circle: CircleSummary) => void;
+    circleLeft: (circleId: string) => void;
     setActiveCircle: (circleId: string) => void;
     setPendingInvite: (code: string | null) => void;
     trustModeConfirmed: (mode: TrustMode) => void;
@@ -37,6 +39,7 @@ export const useSession = create<SessionStore>()((set) => ({
     signedOut: () => set((s) => applySignedOut(s)),
     me: (me) => set((s) => applyMe(s, me)),
     circleJoined: (circle) => set((s) => applyCircleJoined(s, circle)),
+    circleLeft: (circleId) => set((s) => applyCircleLeft(s, circleId)),
     setActiveCircle: (activeCircleId) => set({ activeCircleId }),
     setPendingInvite: (pendingInviteCode) => set({ pendingInviteCode }),
     trustModeConfirmed: (mode) => set((s) => applyTrustMode(s, mode)),

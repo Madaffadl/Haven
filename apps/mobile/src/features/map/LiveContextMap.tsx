@@ -10,7 +10,7 @@ import Mapbox, {
 import type { TrustMode } from '@haven/contracts';
 import Constants from 'expo-constants';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -19,7 +19,7 @@ import { usePresence } from '../../state/presence';
 import { selectMappable, type MappableMember } from '../../state/presenceReducer';
 import { color, size } from '../../ui/theme/tokens';
 import { AvatarMarker } from './AvatarMarker';
-import { MIN_VISIBLE_ACCURACY_M, boundsFor, circlePolygon, fanOut } from './geometry';
+import { MIN_VISIBLE_ACCURACY_M, boundsFor, circlePolygon, fanOutGroups } from './geometry';
 import { STANDARD_STYLE_URL, havenMapConfig } from './mapStyle';
 
 const extra = Constants.expoConfig?.extra as { mapboxToken?: string } | undefined;
@@ -103,7 +103,7 @@ export const LiveContextMap = ({
   const members = usePresence(useShallow((s) => selectMappable(s, circleId)));
   const profiles = usePresence((s) => s.circles[circleId]?.profiles);
 
-  const offsets = useMemo(() => fanOut(members), [members]);
+  const groups = useMemo(() => fanOutGroups(members), [members]);
   const discs = useMemo(() => discFeatures(members), [members]);
 
   const duration = reduceMotion ? 0 : CAMERA_MS;
@@ -174,6 +174,10 @@ export const LiveContextMap = ({
 
       <Camera ref={camera} />
 
+      {/* Emissive strength 1 on every disc layer: Standard's `night` light
+          preset darkens added layers like the rest of the map, which turned
+          the lavender Approximate disc into a near-invisible dark smudge.
+          Emissive layers keep the token colours the contrast tests check. */}
       <ShapeSource id="presence-discs" shape={discs}>
         <FillLayer
           id="presence-disc-fill"
@@ -185,6 +189,7 @@ export const LiveContextMap = ({
               color.map.approximateFill,
               color.map.preciseFill,
             ],
+            fillEmissiveStrength: 1,
           }}
         />
         <LineLayer
@@ -194,39 +199,58 @@ export const LiveContextMap = ({
             lineColor: color.map.approximateStroke,
             lineWidth: 1.5,
             lineDasharray: [2, 2],
+            lineEmissiveStrength: 1,
           }}
         />
         <LineLayer
           id="presence-disc-edge-precise"
           filter={['==', ['get', 'mode'], 'precise']}
-          style={{ lineColor: color.map.preciseStroke, lineWidth: 1 }}
+          style={{ lineColor: color.map.preciseStroke, lineWidth: 1, lineEmissiveStrength: 1 }}
         />
       </ShapeSource>
 
-      {members.map((member) => {
-        const offset = offsets.get(member.userId) ?? { dx: 0, dy: 0 };
-        const isSelected = member.userId === selectedId;
+      {/* One marker per group of people at the same spot, avatars laid out
+          inside it (geometry.ts fanOutGroups). The anchor stays the centre,
+          inside the [0, 1] range MarkerView requires. A lone member's group
+          is exactly one marker wide, as before. */}
+      {groups.map(({ anchor, members: placed }) => {
+        const reachX = Math.max(...placed.map(({ offset }) => Math.abs(offset.dx)));
+        const reachY = Math.max(...placed.map(({ offset }) => Math.abs(offset.dy)));
+        const width = size.marker + 2 * reachX;
+        const height = size.marker + 2 * reachY;
+        const hasSelection = placed.some(({ member }) => member.userId === selectedId);
+
         return (
           <MarkerView
-            key={member.userId}
-            coordinate={member.coordinate}
-            // Shifting the anchor opposite to the fan-out offset moves the
-            // view by that offset while the coordinate stays true.
-            anchor={{ x: 0.5 - offset.dx / size.marker, y: 0.5 - offset.dy / size.marker }}
+            key={placed.map(({ member }) => member.userId).join(':')}
+            coordinate={anchor}
             allowOverlap
             allowZElevate
-            isSelected={isSelected}
+            isSelected={hasSelection}
             stopGesturePropagation
           >
-            <AvatarMarker
-              member={member}
-              profile={profiles?.[member.userId]}
-              selected={isSelected}
-              isSelf={member.userId === selfId}
-              selfTrustMode={selfTrustMode}
-              now={now}
-              onPress={handleSelect}
-            />
+            <View style={{ width, height }}>
+              {placed.map(({ member, offset }) => (
+                <View
+                  key={member.userId}
+                  style={{
+                    position: 'absolute',
+                    left: (width - size.marker) / 2 + offset.dx,
+                    top: (height - size.marker) / 2 + offset.dy,
+                  }}
+                >
+                  <AvatarMarker
+                    member={member}
+                    profile={profiles?.[member.userId]}
+                    selected={member.userId === selectedId}
+                    isSelf={member.userId === selfId}
+                    selfTrustMode={selfTrustMode}
+                    now={now}
+                    onPress={handleSelect}
+                  />
+                </View>
+              ))}
+            </View>
           </MarkerView>
         );
       })}

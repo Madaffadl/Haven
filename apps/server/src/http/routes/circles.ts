@@ -12,6 +12,7 @@ import {
   acceptInvite,
   createCircle,
   createInvite,
+  leaveCircle,
   listCircles,
   previewInvite,
 } from '../../infra/db/repositories/membership.js';
@@ -63,6 +64,23 @@ export const circleRoutes =
       }
 
       return reply.code(201).send(result.invite);
+    });
+
+    /**
+     * Leave a circle. The member vanishes from everyone's map at once (fresh
+     * bootstraps), and their own sockets reconnect without the circle.
+     */
+    app.post(routes.leaveCircle(':circleId'), async (request, reply) => {
+      const auth = await authenticateRequest(request);
+      const params = parse(circleParams, request.params);
+
+      const outcome = await leaveCircle({ userId: auth.userId, circleId: params.circleId });
+      if (outcome === 'not_a_member') {
+        throw new ApiError(404, 'not_found', 'you are not in this circle');
+      }
+
+      await resyncMembership(deps.io, auth.userId, params.circleId);
+      return reply.code(204).send();
     });
 
     app.get(routes.invite(':code'), async (request) => {

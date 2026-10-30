@@ -286,3 +286,107 @@ export const acceptInvite = async (args: {
     client.release();
   }
 };
+
+export type LeaveOutcome = 'left' | 'not_a_member';
+
+/**
+ * Leave one circle, inside the caller's transaction (also used by account
+ * deletion, which leaves every circle at once).
+ *
+ * What goes with the membership:
+ *   - fuzz anchors for this circle: a stale cell must not outlive the reason
+ *     it existed;
+ *   - widget pins in either direction: a widget must never keep showing
+ *     someone after the relationship that allowed it has ended;
+ *   - invites this member made: their code was their word, and they are no
+ *     longer here to stand behind it.
+ *
+ * An owner who leaves hands the circle on (admins first, then whoever joined
+ * earliest), so the circle never sits there without anyone able to run it.
+ * The last person out closes it.
+ */
+export const leaveWithin = async (
+  db: Pick<PoolClient, 'query'>,
+  args: { userId: string; circleId: string },
+): Promise<LeaveOutcome> => {
+  const { userId, circleId } = args;
+
+  // Serialise with joins and other leaves, so seat counts and the ownership
+  // hand-off see one consistent membership.
+  await db.query('SELECT 1 FROM circles WHERE id = $1 FOR UPDATE', [circleId]);
+
+  const left = await db.query<{ role: MemberRole }>(
+    `
+    UPDATE circle_members SET left_at = now()
+     WHERE circle_id = $1 AND user_id = $2 AND left_at IS NULL
+    RETURNING role
+    `,
+    [circleId, userId],
+  );
+  const role = left.rows[0]?.role;
+  if (!role) return 'not_a_member';
+
+  await db.query('DELETE FROM location_fuzz_anchors WHERE circle_id = $1 AND user_id = $2', [
+    circleId,
+    userId,
+  ]);
+  await db.query(
+    'DELETE FROM widget_pins WHERE circle_id = $1 AND (user_id = $2 OR target_user_id = $2)',
+    [circleId, userId],
+  );
+  await db.query(
+    `
+    UPDATE circle_invites SET revoked_at = now()
+     WHERE circle_id = $1 AND created_by = $2 AND revoked_at IS NULL
+    `,
+    [circleId, userId],
+  );
+
+  if (role === 'owner') {
+    await db.query(
+      `
+      UPDATE circle_members SET role = 'owner'
+       WHERE circle_id = $1
+         AND user_id = (
+           SELECT user_id FROM circle_members
+            WHERE circle_id = $1 AND left_at IS NULL
+            ORDER BY (role = 'admin') DESC, joined_at
+            LIMIT 1
+         )
+      `,
+      [circleId],
+    );
+  }
+
+  const remaining = await db.query<{ n: number }>(
+    'SELECT count(*)::int AS n FROM circle_members WHERE circle_id = $1 AND left_at IS NULL',
+    [circleId],
+  );
+  if (remaining.rows[0]!.n === 0) {
+    await db.query('UPDATE circles SET deleted_at = now() WHERE id = $1', [circleId]);
+    await db.query(
+      'UPDATE circle_invites SET revoked_at = now() WHERE circle_id = $1 AND revoked_at IS NULL',
+      [circleId],
+    );
+  }
+
+  return 'left';
+};
+
+export const leaveCircle = async (args: {
+  userId: string;
+  circleId: string;
+}): Promise<LeaveOutcome> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const outcome = await leaveWithin(client, args);
+    await client.query(outcome === 'left' ? 'COMMIT' : 'ROLLBACK');
+    return outcome;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};

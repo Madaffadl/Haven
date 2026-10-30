@@ -75,6 +75,17 @@ export const applyCircleJoined = (state: SessionState, circle: CircleSummary): S
   pendingInviteCode: null,
 });
 
+/**
+ * Gone from a circle. If it was on screen, the next one takes its place; with
+ * none left, the stage drops back to 'circle' and the router shows the
+ * create-or-join screen.
+ */
+export const applyCircleLeft = (state: SessionState, circleId: string): SessionState => {
+  const circles = state.circles.filter((c) => c.id !== circleId);
+  const current = state.activeCircleId === circleId ? null : state.activeCircleId;
+  return { ...state, circles, activeCircleId: pickActive(circles, current) };
+};
+
 export const applySignedOut = (state: SessionState): SessionState => ({
   ...initialSession,
   status: 'signedOut',

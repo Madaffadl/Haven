@@ -22,11 +22,8 @@ const config: ExpoConfig = {
     bundleIdentifier: 'app.haven.mobile',
     supportsTablet: true,
     infoPlist: {
-      NSLocationWhenInUseUsageDescription:
-        'Haven shows your circle where you are, so they know you are okay.',
-      NSLocationAlwaysAndWhenInUseUsageDescription:
-        'Haven keeps your circle up to date in the background, using as little battery as possible.',
-      UIBackgroundModes: ['location', 'fetch', 'remote-notification'],
+      // 'location' is added by the expo-location plugin below.
+      UIBackgroundModes: ['fetch', 'remote-notification'],
     },
   },
   android: {
@@ -34,7 +31,29 @@ const config: ExpoConfig = {
     // Edge-to-edge is always on as of SDK 58; safe areas are handled in-app.
     permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'ACCESS_BACKGROUND_LOCATION'],
   },
-  plugins: ['expo-router', 'expo-font', 'expo-secure-store', ['@rnmapbox/maps', {}]],
+  plugins: [
+    'expo-router',
+    'expo-font',
+    'expo-secure-store',
+    ['@rnmapbox/maps', {}],
+    [
+      'expo-location',
+      {
+        // Shown by iOS in the permission prompts. Plain words about what the
+        // circle gets, and that battery is being looked after.
+        locationWhenInUsePermission:
+          'Haven shows your circle where you are, so they know you are okay.',
+        locationAlwaysAndWhenInUsePermission:
+          'Haven keeps your circle up to date while the app is closed, using as little battery as possible.',
+        // The same promise under the older key some iOS versions still read.
+        locationAlwaysPermission:
+          'Haven keeps your circle up to date while the app is closed, using as little battery as possible.',
+        isIosBackgroundLocationEnabled: true,
+        isAndroidBackgroundLocationEnabled: true,
+        isAndroidForegroundServiceEnabled: true,
+      },
+    ],
+  ],
   experiments: {
     typedRoutes: true,
   },

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { circleId, isoInstant, nudgeId } from './primitives';
-import { locationReportSchema, memberPresenceSchema } from './presence';
-import { nudgeEventSchema, sendNudgeSchema } from './nudge';
+import { type locationReportSchema, memberPresenceSchema } from './presence';
+import type { nudgeEventSchema, sendNudgeSchema } from './nudge';
 import { trustModeSchema } from './trust';
 
 /**

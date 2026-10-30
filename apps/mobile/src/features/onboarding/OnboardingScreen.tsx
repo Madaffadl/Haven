@@ -16,6 +16,11 @@ interface OnboardingScreenProps {
   children?: ReactNode;
   /** Pinned under the content and lifted with the keyboard. */
   footer?: ReactNode;
+  /**
+   * Presented as a modal. On iOS a modal sheet already starts below the
+   * status bar, so adding the top safe-area inset again leaves a gap.
+   */
+  modal?: boolean;
 }
 
 /**
@@ -30,8 +35,10 @@ export const OnboardingScreen = ({
   onBack,
   children,
   footer,
+  modal = false,
 }: OnboardingScreenProps) => {
   const insets = useSafeAreaInsets();
+  const topInset = modal && Platform.OS === 'ios' ? 0 : insets.top;
 
   return (
     <KeyboardAvoidingView
@@ -42,7 +49,7 @@ export const OnboardingScreen = ({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.lg },
+          { paddingTop: topInset + space.md, paddingBottom: insets.bottom + space.lg },
         ]}
       >
         {onBack ? (

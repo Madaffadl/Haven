@@ -3,16 +3,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { signOut } from '../../core/api/account';
 import { API_URL, api } from '../../core/api';
+import { useLocationSharing } from '../../core/location/useLocationSharing';
 import { connectRealtime, disconnectRealtime } from '../../core/realtime/socket';
 import { DEMO_CIRCLE_ID, DEMO_SELF_ID, demoBootstrap } from '../../dev/demoCircle';
 import { DEMO_MODE } from '../../dev/demoMode';
 import { presenceActions } from '../../state/presence';
 import { useSession } from '../../state/session';
-import { color, space } from '../../ui/theme/tokens';
+import { color, size, space } from '../../ui/theme/tokens';
+import { NudgeOverlay } from '../nudge/NudgeOverlay';
+import { ProfileButton } from '../settings/ProfileButton';
 import { TrustChip } from '../trust-mode/TrustChip';
 import { LiveContextMap } from './LiveContextMap';
+import { LocationBanner } from './LocationBanner';
 import { MemberSheet, useSheetHeights } from './MemberSheet';
 
 /**
@@ -34,6 +37,10 @@ export const MapScreen = () => {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sheetIndex, setSheetIndex] = useState(0);
+
+  // The demo circle is a fixture: no tracking, and "You" stays where the
+  // fixture puts you.
+  useLocationSharing(!DEMO_MODE && Boolean(userId));
 
   // One socket per signed-in user, not per circle on screen: it joins every
   // circle the user is in, so switching circles needs no reconnect.
@@ -72,25 +79,36 @@ export const MapScreen = () => {
         bottomInset={visibleSheet}
         selfTrustMode={trustMode}
       />
+      <View style={[styles.profile, { top: insets.top + space.xs }]}>
+        <ProfileButton onPress={() => router.push('/settings')} />
+      </View>
       <View style={[styles.chip, { top: insets.top + space.xs }]}>
         <TrustChip onPress={() => router.push('/trust')} />
       </View>
+      {DEMO_MODE ? null : (
+        <View style={[styles.banner, { top: insets.top + space.xs + size.touchMin + space.sm }]}>
+          <LocationBanner />
+        </View>
+      )}
       <MemberSheet
         circleId={circleId}
+        selfId={selfId}
         selectedId={selectedId}
         onSelect={select}
         index={sheetIndex}
         onIndexChange={setSheetIndex}
-        // The demo circle has no backend to invite into or sign out of.
-        {...(DEMO_MODE
-          ? {}
-          : { onInvite: () => router.push('/invite'), onSignOut: () => void signOut() })}
+        // The demo circle has no backend to invite into.
+        {...(DEMO_MODE ? {} : { onInvite: () => router.push('/invite') })}
       />
+      {/* Last, so a nudge plays over the sheet too; it never takes touches. */}
+      <NudgeOverlay />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.background },
+  profile: { position: 'absolute', left: space.md },
   chip: { position: 'absolute', right: space.md },
+  banner: { position: 'absolute', left: space.md, right: space.md },
 });

@@ -45,6 +45,7 @@ export const TrustModeScreen = () => {
 
   return (
     <OnboardingScreen
+      modal
       onBack={() => router.back()}
       title="Trust Mode"
       subtitle="Choose how much your circle sees. You can change it whenever you like."

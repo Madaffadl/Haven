@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { boundsFor, circlePolygon, distanceM, fanOut } from '../src/features/map/geometry.js';
+import {
+  FAN_CLEARANCE_PX,
+  boundsFor,
+  circlePolygon,
+  distanceM,
+  fanOut,
+  fanOutGroups,
+} from '../src/features/map/geometry.js';
 import {
   nearestSnapIndex,
   projectedEnd,
@@ -84,6 +91,44 @@ describe('fan-out', () => {
       { userId: 'a', coordinate: HOME },
     ]);
     assert.notDeepEqual(offsets.get('a'), offsets.get('b'));
+  });
+
+  it('keeps fanned-out markers and their badges clear of each other', () => {
+    for (let n = 2; n <= 8; n += 1) {
+      const offsets = [
+        ...fanOut(
+          Array.from({ length: n }, (_, i) => ({ userId: `u${i}`, coordinate: HOME })),
+        ).values(),
+      ];
+      for (let i = 0; i < offsets.length; i += 1) {
+        for (let j = i + 1; j < offsets.length; j += 1) {
+          const a = offsets[i]!;
+          const b = offsets[j]!;
+          // 1 px of slack for rounding to whole pixels.
+          assert.ok(
+            Math.hypot(a.dx - b.dx, a.dy - b.dy) >= FAN_CLEARANCE_PX - 1,
+            `${n} people: markers ${i} and ${j} overlap`,
+          );
+        }
+      }
+    }
+  });
+
+  it('groups people at one spot under a single marker, pinned to a real position', () => {
+    const groups = fanOutGroups([
+      { userId: 'b', coordinate: HOME },
+      { userId: 'a', coordinate: HOME },
+      { userId: 'c', coordinate: [106.8312, -6.1751] }, // ~440 m east
+    ]);
+    assert.equal(groups.length, 2);
+    const together = groups.find((g) => g.members.length === 2)!;
+    assert.deepEqual(together.anchor, HOME);
+    assert.deepEqual(
+      together.members.map(({ member }) => member.userId),
+      ['a', 'b'],
+    );
+    const alone = groups.find((g) => g.members.length === 1)!;
+    assert.deepEqual(alone.members[0]!.offset, { dx: 0, dy: 0 });
   });
 
   it('leaves a lone member exactly on their point', () => {

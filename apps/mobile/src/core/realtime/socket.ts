@@ -1,11 +1,15 @@
 import type {
   ClientToServerEvents,
+  LocationReport,
+  SendNudge,
   ServerToClientEvents,
   SocketErrorCode,
   TrustMode,
+  UploadPolicy,
 } from '@haven/contracts';
 import { io, type Socket } from 'socket.io-client';
 
+import { nudgeActions } from '../../state/nudges';
 import { presenceActions } from '../../state/presence';
 
 export type HavenClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -57,6 +61,10 @@ export const connectRealtime = ({ url, getToken }: ConnectOptions): HavenClientS
   // the member between the two, so arrival order cannot re-expose them.
   client.on('trust:changed', actions.trustChanged);
 
+  const nudges = nudgeActions();
+  client.on('nudge:received', nudges.received);
+  client.on('nudge:delivered', nudges.delivered);
+
   // The server drops our sockets when circle membership changes (joining,
   // creating a circle) so the handshake re-runs against the new membership.
   // Socket.IO treats a server-side disconnect as deliberate and does not
@@ -73,6 +81,7 @@ export const disconnectRealtime = (): void => {
   socket?.disconnect();
   socket = null;
   presenceActions().reset();
+  nudgeActions().reset();
 };
 
 export const getSocket = (): HavenClientSocket | null => socket;
@@ -88,18 +97,24 @@ export class RealtimeRequestError extends Error {
 }
 
 /**
- * Change this user's Trust Mode in every circle that inherits it.
- *
- * Fails fast when offline instead of letting Socket.IO buffer the emit. A
- * privacy change that silently lands minutes later, after the screen said it
- * had failed, would be worse than one that plainly did not happen.
+ * An acknowledged request over the socket. Fails fast offline rather than
+ * letting Socket.IO buffer it: a nudge or a privacy change that silently
+ * lands minutes later, after the screen said it failed, is worse than one
+ * that plainly did not happen.
  */
-export const requestTrustMode = async (mode: TrustMode): Promise<void> => {
+const request = async <T>(
+  send: (
+    client: HavenClientSocket,
+  ) => Promise<
+    | { ok: true; data: T }
+    | { ok: false; error: { code: SocketErrorCode; message: string; retryAfterMs?: number } }
+  >,
+): Promise<T> => {
   if (!socket?.connected) throw new RealtimeRequestError('offline', 'not connected');
 
-  let result: Parameters<Parameters<ClientToServerEvents['trust:set']>[1]>[0];
+  let result: Awaited<ReturnType<typeof send>>;
   try {
-    result = await socket.timeout(10_000).emitWithAck('trust:set', { circleId: null, mode });
+    result = await send(socket);
   } catch {
     throw new RealtimeRequestError('timeout', 'no answer from the server');
   }
@@ -111,4 +126,33 @@ export const requestTrustMode = async (mode: TrustMode): Promise<void> => {
       result.error.retryAfterMs,
     );
   }
+  return result.data;
+};
+
+const TIMEOUT_MS = 10_000;
+
+/** Change this user's Trust Mode in every circle that inherits it. */
+export const requestTrustMode = async (mode: TrustMode): Promise<void> => {
+  await request<null>((client) =>
+    client.timeout(TIMEOUT_MS).emitWithAck('trust:set', { circleId: null, mode }),
+  );
+};
+
+export const requestLocationReport = (report: LocationReport) =>
+  request<UploadPolicy>((client) =>
+    client.timeout(TIMEOUT_MS).emitWithAck('location:report', report),
+  );
+
+export const requestNudge = (nudge: SendNudge) =>
+  request<{ id: string; sentAt: string }>((client) =>
+    client.timeout(TIMEOUT_MS).emitWithAck('nudge:send', nudge),
+  );
+
+/**
+ * "I rendered it": what turns the sender's nudge into "seen". Sent when the
+ * animation starts playing, never on receipt, and best effort: a lost ack
+ * costs the sender a receipt, not the recipient anything.
+ */
+export const acknowledgeNudge = (nudgeId: string): void => {
+  socket?.emit('nudge:ack', { nudgeId }, () => {});
 };

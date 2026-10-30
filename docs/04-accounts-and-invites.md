@@ -44,6 +44,32 @@ Errors share one envelope, `{ error: { code, message, retryAfterMs? } }`.
 | GET | `/v1/invites/:code` | ✓ | Preview before joining |
 | POST | `/v1/invites/:code/accept` | ✓ | Idempotent; locks invite and circle |
 
+### Profile & settings
+
+Opened from your avatar in the map's top-left corner
+([`features/settings/`](../apps/mobile/src/features/settings/)).
+
+| Method | Path | Notes |
+|---|---|---|
+| PATCH | `/v1/me` | Name and/or accent (one of `ACCENT_COLORS`); re-bootstraps your circles |
+| GET | `/v1/me/devices` | Devices with a live session; yours is marked `current` |
+| DELETE | `/v1/me/devices/:id` | Signs another device out now; its sockets drop |
+| DELETE | `/v1/me` | Deletes the account (below) |
+| POST | `/v1/circles/:id/leave` | Leave; an owner hands the circle on, the last one out closes it |
+
+- **Leaving** revokes the leaver's invites, drops their fuzz anchors and any
+  widget pins in either direction, and promotes the next owner (admins
+  first, then earliest joined).
+- **Deleting an account** leaves every circle, erases location outright
+  (current position, anchors, history, place events), revokes every
+  session, and turns the user row into an anonymous tombstone. The row stays
+  because circles and nudges reference it. The email is rewritten to
+  `deleted+<id>@deleted.invalid`, which frees the real address for a fresh
+  sign-up. Apple requires in-app deletion for any app with sign-up.
+- **Not yet in settings:** location permission status and notifications
+  (both need native modules that arrive with location upload and push),
+  per-circle Trust Mode, circle rename, privacy policy link, language.
+
 ## 3. Decisions worth knowing
 
 - **Email, not SMS.** Email is free at MVP scale (Resend: 100 a day). The

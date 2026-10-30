@@ -15,6 +15,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { restoreSession } from '../src/core/api/account';
+// For its side effect: the background location task must be defined before
+// the OS can deliver an event to it, including on a background relaunch.
+import '../src/core/location/tracker';
 import { DEMO_MODE } from '../src/dev/demoMode';
 import { selectStage, useSession } from '../src/state/session';
 import { STAGE_HOME } from '../src/state/sessionReducer';

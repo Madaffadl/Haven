@@ -66,7 +66,9 @@ export const JoinScreen = () => {
     setError(null);
     try {
       await acceptInvite(code);
-      router.replace('/');
+      // Back to the map whether this was opened from onboarding, a link, or
+      // settings > another circle (where modals sit above the map).
+      router.dismissTo('/');
     } catch (caught) {
       setError(errorCopy(caught));
       setBusy(false);
@@ -77,7 +79,7 @@ export const JoinScreen = () => {
     if (!preview) return;
     sessionActions().setActiveCircle(preview.circleId);
     sessionActions().setPendingInvite(null);
-    router.replace('/');
+    router.dismissTo('/');
   };
 
   if (!code) {

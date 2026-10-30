@@ -28,12 +28,12 @@ backend at all against a sample circle: see [docs/03 §10](docs/03-live-context-
 
 | Pillar | Phase 1 (schema + structure) | Phase 2 (backend) | Phase 3 (frontend) |
 |---|---|---|---|
-| Live Context Map | ✅ | ✅ socket fan-out | ✅ map, avatars, ring, weather, sheet |
-| Tap-to-Nudge | ✅ | ✅ | ⏳ burst animation |
+| Live Context Map | ✅ | ✅ socket fan-out + HTTPS background reports | ✅ map, avatars, ring, weather, sheet, location upload (foreground + background) · ⏳ live weather |
+| Tap-to-Nudge | ✅ | ✅ | ✅ nudge bar, burst + haptics, "seen" · ⏳ real push |
 | Trust Mode | ✅ | ✅ fuzzing + tests | ✅ discs, client privacy, toggle (all circles at once) · ⏳ per-circle |
 | Home Screen Widget | ✅ | ⏳ REST endpoint | ⏳ |
-| Accounts & invites ([docs/04](docs/04-accounts-and-invites.md)) | ✅ | ✅ email sign-in, circles, invites | ✅ onboarding + invite/join screens |
+| Accounts & invites ([docs/04](docs/04-accounts-and-invites.md)) | ✅ | ✅ email sign-in, circles, invites, devices, leave, delete | ✅ onboarding, invite/join, profile & settings |
 
-Verified by typecheck, 59 server and 114 mobile unit tests, and the demo map
+Verified by typecheck, ESLint, 61 server and 150 mobile unit tests, and the demo map
 running on the iOS simulator. The backend has **not yet run against a real
 database**: nothing is configured until Neon and Redis are set up.

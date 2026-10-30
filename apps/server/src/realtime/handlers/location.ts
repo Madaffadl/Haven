@@ -3,6 +3,7 @@ import {
   locationReportSchema,
   userRoom,
   type Ack,
+  type LocationReport,
   type MemberPresence,
   type UploadPolicy,
 } from '@haven/contracts';
@@ -22,7 +23,7 @@ import {
 } from '../../infra/db/repositories/location.js';
 import { limitLocationReport } from '../../infra/redis/rateLimit.js';
 import { logger } from '../../lib/logger.js';
-import type { HandlerContext } from '../types.js';
+import type { HandlerContext, HavenServer } from '../types.js';
 
 /**
  * The location ingest path.
@@ -45,7 +46,7 @@ import type { HandlerContext } from '../types.js';
 
 const toSubjectState = (args: {
   userId: string;
-  report: ReturnType<typeof locationReportSchema.parse>;
+  report: LocationReport;
   stored: {
     capturedAt: Date;
     weatherCode: number | null;
@@ -115,18 +116,102 @@ const projectForCircle = async (args: {
 };
 
 /** Is anyone other than this member currently watching any shared circle? */
-const anyLiveViewers = async (ctx: HandlerContext): Promise<boolean> => {
-  const { io, socket } = ctx;
-  const self = socket.data.userId;
-
-  for (const { circleId } of socket.data.memberships) {
+const anyLiveViewers = async (
+  io: HavenServer,
+  userId: string,
+  memberships: readonly MembershipContext[],
+): Promise<boolean> => {
+  for (const { circleId } of memberships) {
     // Cluster-aware via the Redis adapter. Circles are capped at 16 members,
     // so the fan-in here is bounded and small by construction.
     const sockets = await io.in(circleRoom(circleId)).fetchSockets();
-    if (sockets.some((s) => s.data.userId !== self)) return true;
+    if (sockets.some((s) => s.data.userId !== userId)) return true;
   }
 
   return false;
+};
+
+export interface IngestArgs {
+  io: HavenServer;
+  userId: string;
+  deviceId: string;
+  report: LocationReport;
+  memberships: MembershipContext[];
+  /**
+   * The reporting socket's change-suppression cache, or null over HTTP.
+   *
+   * HTTP reports broadcast every projection. They come from the background
+   * task only while the app has no socket (core/location in the app), so the
+   * next socket starts with an empty cache and can never suppress against a
+   * position the HTTP path already moved past.
+   */
+  lastBroadcast: Map<string, MemberPresence> | null;
+  /** The socket that sent the fix, which already knows it; null over HTTP. */
+  senderSocketId: string | null;
+}
+
+/**
+ * The location pipeline, shared by the socket event (app open) and the HTTP
+ * endpoint (background task): persist precise → project per circle → fan out
+ * → return the next upload policy. Validation and rate limiting happen in
+ * the two callers, before this runs.
+ */
+export const ingestLocationReport = async (args: IngestArgs): Promise<UploadPolicy> => {
+  const { io, userId, deviceId, report, memberships, lastBroadcast, senderSocketId } = args;
+
+  const stored = await upsertLocationState({ userId, deviceId, report });
+
+  const policyFor = async (): Promise<UploadPolicy> =>
+    resolveUploadPolicy({
+      activity: report.activity,
+      batteryPercent: report.battery.percent,
+      powerSaving: report.battery.powerSaving,
+      hasLiveViewers: await anyLiveViewers(io, userId, memberships),
+      fullyGhosted: memberships.length > 0 && memberships.every((m) => m.mode === 'ghost'),
+    });
+
+  // No row means an out-of-order report older than what we already hold.
+  // Acknowledge it as handled — the client did nothing wrong and must not
+  // retry — but broadcast nothing.
+  if (!stored) return policyFor();
+
+  void appendHistory({ userId, report }).catch((error: unknown) => {
+    // History is a convenience; never fail a live update because the
+    // (optional, partitioned) trail could not be written.
+    logger.warn({ err: error, userId }, 'failed to append location history');
+  });
+
+  const subject = toSubjectState({ userId, report, stored });
+
+  for (const membership of memberships) {
+    const presence = await projectForCircle({ userId, subject, membership });
+
+    const previous = lastBroadcast?.get(membership.circleId) ?? null;
+    if (lastBroadcast && !hasMaterialChange(previous, presence)) {
+      // The common case for a stationary member in Approximate mode: the cell
+      // centroid is unchanged and the battery is in the same 5% bucket, so
+      // the entire circle's radios stay asleep.
+      continue;
+    }
+
+    lastBroadcast?.set(membership.circleId, presence);
+
+    io.to(circleRoom(membership.circleId))
+      .except(userRoom(userId))
+      .emit('presence:update', { circleId: membership.circleId, member: presence });
+  }
+
+  // The member's own other devices get the precise position. The sending
+  // socket (a socket id is also a room) already knows its own GPS fix.
+  const selfView = projectPresence({ subject, mode: 'precise', anchor: null, online: true });
+  const ownDevices = senderSocketId
+    ? io.to(userRoom(userId)).except(senderSocketId)
+    : io.to(userRoom(userId));
+  for (const { circleId } of memberships) {
+    ownDevices.emit('presence:update', { circleId, member: selfView });
+  }
+
+  return policyFor();
 };
 
 export const handleLocationReport = async (
@@ -142,7 +227,6 @@ export const handleLocationReport = async (
     ack({ ok: false, error: { code: 'invalid_payload', message: 'malformed location report' } });
     return;
   }
-  const report = parsed.data;
 
   const limit = await limitLocationReport(userId);
   if (!limit.allowed) {
@@ -157,63 +241,15 @@ export const handleLocationReport = async (
     return;
   }
 
-  const stored = await upsertLocationState({
+  const policy = await ingestLocationReport({
+    io,
     userId,
     deviceId: socket.data.deviceId,
-    report,
+    report: parsed.data,
+    memberships: socket.data.memberships,
+    lastBroadcast: socket.data.lastBroadcast,
+    senderSocketId: socket.id,
   });
 
-  const policyFor = async (): Promise<UploadPolicy> =>
-    resolveUploadPolicy({
-      activity: report.activity,
-      batteryPercent: report.battery.percent,
-      powerSaving: report.battery.powerSaving,
-      hasLiveViewers: await anyLiveViewers(ctx),
-      fullyGhosted:
-        socket.data.memberships.length > 0 &&
-        socket.data.memberships.every((m) => m.mode === 'ghost'),
-    });
-
-  // No row means an out-of-order report older than what we already hold.
-  // Acknowledge it as handled — the client did nothing wrong and must not
-  // retry — but broadcast nothing.
-  if (!stored) {
-    ack({ ok: true, data: await policyFor() });
-    return;
-  }
-
-  void appendHistory({ userId, report }).catch((error: unknown) => {
-    // History is a convenience; never fail a live update because the
-    // (optional, partitioned) trail could not be written.
-    logger.warn({ err: error, userId }, 'failed to append location history');
-  });
-
-  const subject = toSubjectState({ userId, report, stored });
-
-  for (const membership of socket.data.memberships) {
-    const presence = await projectForCircle({ userId, subject, membership });
-
-    const previous = socket.data.lastBroadcast.get(membership.circleId) ?? null;
-    if (!hasMaterialChange(previous, presence)) {
-      // The common case for a stationary member in Approximate mode: the cell
-      // centroid is unchanged and the battery is in the same 5% bucket, so
-      // the entire circle's radios stay asleep.
-      continue;
-    }
-
-    socket.data.lastBroadcast.set(membership.circleId, presence);
-
-    io.to(circleRoom(membership.circleId))
-      .except(userRoom(userId))
-      .emit('presence:update', { circleId: membership.circleId, member: presence });
-  }
-
-  // The member's own other devices get the precise position. `socket.to`
-  // excludes the sending socket, which already knows its own GPS fix.
-  const selfView = projectPresence({ subject, mode: 'precise', anchor: null, online: true });
-  for (const { circleId } of socket.data.memberships) {
-    socket.to(userRoom(userId)).emit('presence:update', { circleId, member: selfView });
-  }
-
-  ack({ ok: true, data: await policyFor() });
+  ack({ ok: true, data: policy });
 };

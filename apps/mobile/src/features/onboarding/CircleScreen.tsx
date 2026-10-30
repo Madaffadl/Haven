@@ -23,7 +23,15 @@ const KINDS: { kind: CircleKind; label: string; icon: LucideIcon }[] = [
   { kind: 'family', label: 'Family', icon: House },
 ];
 
-export const CircleScreen = () => {
+interface CircleScreenProps {
+  /**
+   * onboarding: the first circle; success moves the router on by itself.
+   * add: another circle from settings; it has a way back and closes itself.
+   */
+  mode?: 'onboarding' | 'add';
+}
+
+export const CircleScreen = ({ mode = 'onboarding' }: CircleScreenProps) => {
   const router = useRouter();
   const pendingCode = useSession((s) => s.pendingInviteCode);
 
@@ -53,8 +61,10 @@ export const CircleScreen = () => {
     setBusy(true);
     setError(null);
     try {
-      // On success the session gains a circle and the router moves to the map.
+      // During onboarding the new circle moves the router to the map by
+      // itself; from settings, this screen closes.
       await createCircle(trimmed, kind);
+      if (mode === 'add') router.back();
     } catch (caught) {
       setError(errorCopy(caught));
       setBusy(false);
@@ -67,7 +77,8 @@ export const CircleScreen = () => {
 
   return (
     <OnboardingScreen
-      title="Start your circle"
+      {...(mode === 'add' ? { onBack: () => router.back(), modal: true } : {})}
+      title={mode === 'add' ? 'Another circle' : 'Start your circle'}
       subtitle="A circle is the few people you share your day with. Only they can see you."
       footer={
         <Button

@@ -14,11 +14,16 @@ export const routes = {
   refresh: '/v1/auth/refresh',
   signOut: '/v1/auth/sign-out',
   me: '/v1/me',
+  devices: '/v1/me/devices',
+  /** Background location reports, for when the app has no socket. */
+  location: '/v1/location',
   circles: '/v1/circles',
   // Parameterised paths take an already-validated value (a UUID, or a code
   // through inviteCodeSchema), never raw input. The server registers them
   // with ':circleId' / ':code', so they must not be URL-encoded here.
+  device: (deviceId: string) => `/v1/me/devices/${deviceId}`,
   circleInvites: (circleId: string) => `/v1/circles/${circleId}/invites`,
+  leaveCircle: (circleId: string) => `/v1/circles/${circleId}/leave`,
   invite: (code: string) => `/v1/invites/${code}`,
   acceptInvite: (code: string) => `/v1/invites/${code}/accept`,
 } as const;

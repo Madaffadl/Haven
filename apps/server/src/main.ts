@@ -4,6 +4,7 @@ import { env } from './config/env.js';
 import { errorHandler, notFoundHandler } from './http/errors.js';
 import { authRoutes } from './http/routes/auth.js';
 import { circleRoutes } from './http/routes/circles.js';
+import { locationRoutes } from './http/routes/location.js';
 import { meRoutes } from './http/routes/me.js';
 import { closePool, pool } from './infra/db/pool.js';
 import { closeRedis, redis } from './infra/redis/client.js';
@@ -28,6 +29,7 @@ const io = createGateway(app.server);
 void app.register(authRoutes({ io }));
 void app.register(meRoutes({ io }));
 void app.register(circleRoutes({ io }));
+void app.register(locationRoutes({ io }));
 
 app.get('/health', async (_request, reply) => {
   // Checks dependencies, not just liveness: a node that cannot reach Postgres

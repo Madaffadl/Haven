@@ -122,6 +122,10 @@ export const AvatarMarker = memo(
         style={styles.touch}
       >
         <Animated.View style={liftStyle}>
+          {/* A soft midnight plate under the ring. Place names are drawn in
+              the map beneath every marker, and without it the label text ran
+              straight through the avatar and its badges. */}
+          <View pointerEvents="none" style={styles.backplate} />
           <Animated.View pointerEvents="none" style={[styles.halo, haloStyle]} />
 
           <BatteryRing battery={member.battery} accent={accent} size={RING_BOX}>
@@ -193,6 +197,15 @@ const styles = StyleSheet.create({
     height: size.marker,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  backplate: {
+    position: 'absolute',
+    left: -5,
+    top: -5,
+    width: RING_BOX + 10,
+    height: RING_BOX + 10,
+    borderRadius: (RING_BOX + 10) / 2,
+    backgroundColor: color.scrim,
   },
   halo: {
     position: 'absolute',

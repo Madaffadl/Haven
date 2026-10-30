@@ -228,6 +228,41 @@ the position anyway. All values are clamped to 15 s – 30 min.
 phone on a desk, "92%, charging" is most of what a worried partner wants to
 know.
 
+### In the app
+
+[`core/location/`](../apps/mobile/src/core/location/)
+
+- **Permission is asked for in context.** A banner on the map asks, rather
+  than a cold prompt at launch. It asks in two steps (while-in-use, then
+  Always), because that is the only order iOS honours. Settings shows the
+  current access and links to the system settings.
+- **One path for every fix.** With Always, a background task
+  (`expo-task-manager`) delivers fixes whether the app is open or not. With
+  while-in-use, a foreground watch does the same while Haven is on screen.
+  Both feed `handleFix`.
+- **The policy is enforced twice.** The OS filters by distance, plus time on
+  Android, using the last `UploadPolicy`. `shouldUpload` then sends only once
+  the interval has passed or the phone has moved past the distance filter,
+  because iOS cannot schedule by time. Balanced accuracy lets iOS use Wi-Fi
+  and cell rather than GPS, and `idle` drops it to Low. A changed policy
+  restarts OS updates with the new filters.
+- **Socket when open, HTTPS otherwise.** A backgrounded phone's socket is
+  usually gone, and reconnecting a WebSocket for one report costs more radio
+  time than the report itself. `POST /v1/location` runs the same pipeline
+  (`ingestLocationReport`) and returns the next policy. It does no change
+  suppression, and it is used only while there is no socket, so a socket's
+  suppression cache can never be stale against a position HTTP already sent.
+- **You move on your own map at once.** The server never echoes a report to
+  the socket that sent it, so the app applies its own fix locally, keeping
+  the weather the server last sent.
+- **Held during Trust Mode changes.** While `trust:set` is in flight, fixes
+  move your own avatar but are not uploaded.
+- **Stops on sign-out.** A signed-out phone must not keep waking up to
+  report.
+- **Not yet:** `presence:heartbeat` from the app (battery freshness for a
+  still phone), motion-activity detection (activity is inferred from speed),
+  and reporting the permission level to the server (`devices.location_auth`).
+
 ---
 
 ## 5. Nudges
@@ -257,6 +292,35 @@ validate → re-check membership → rate limit → persist (idempotent) → del
   recipient's client acks the animation. Push delivery doesn't count:
   telling someone their partner saw a heart while the phone was face-down in
   a bag would be a false signal.
+- **Muted means muted on live sockets too.** `nudge:received` goes to each
+  unmuted recipient's `user:` room rather than the circle room. An open app
+  is no reason to buzz someone who asked for quiet. (It used to be emitted
+  to the room, so mute only silenced push.)
+
+### In the app
+
+[`features/nudge/`](../apps/mobile/src/features/nudge/)
+
+- **Sending:** six emoji buttons at the top of a member's detail in the
+  sheet, reachable with the sheet at half. The sender's burst plays once the
+  server has acked, so it means "sent" and not just "tapped". The client id
+  is a UUIDv7 ([`lib/uuidv7.ts`](../apps/mobile/src/lib/uuidv7.ts)), since
+  the server's `z.uuid()` rejects anything else.
+- **Receiving:** a full-screen overlay that never takes touches. The emoji
+  pops in the middle on the bouncy spring, copies fan out and drift up, a
+  glass caption says who sent it, and the haptic comes from the shared
+  `NUDGE_HAPTICS` table. With Reduce Motion on there's no fan-out, only the
+  emoji appearing.
+- **One at a time, once.** Moments queue
+  ([`state/nudgeReducer.ts`](../apps/mobile/src/state/nudgeReducer.ts)),
+  are deduplicated by id across reconnect replays, and are capped at six.
+- **The ack waits for the screen.** Nothing plays, and so nothing is acked
+  as seen, while the app is in the background.
+- **Lottie is not used yet.** The burst is Reanimated, so it needs no
+  bundled assets and no native rebuild. Swapping in Lottie files later only
+  changes `Burst` in `NudgeOverlay.tsx`.
+- **Demo mode** plays the burst locally, and online members of the sample
+  circle reply after a moment, so receiving can be seen without a backend.
 
 ---
 

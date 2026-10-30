@@ -56,6 +56,7 @@ export const InviteScreen = () => {
 
   return (
     <OnboardingScreen
+      modal
       onBack={() => router.back()}
       title={circle.kind === 'couple' ? 'Invite your partner' : `Invite to ${circle.name}`}
       subtitle="Send them this code. When they open Haven and enter it, you'll see each other on the map."

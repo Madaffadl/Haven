@@ -2,6 +2,7 @@ import {
   acceptInviteResultSchema,
   circleListSchema,
   circleSummarySchema,
+  deviceListSchema,
   invitePreviewSchema,
   inviteSchema,
   meSchema,
@@ -9,12 +10,14 @@ import {
   signInResultSchema,
   type CircleKind,
   type DeviceInfo,
+  type UpdateMe,
 } from '@haven/contracts';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { presenceActions } from '../../state/presence';
 import { sessionActions } from '../../state/session';
+import { stopTracking } from '../location/tracker';
 import { disconnectRealtime } from '../realtime/socket';
 import { secureTokenStore } from '../storage/tokens';
 import { ApiRequestError, api } from './index';
@@ -75,10 +78,8 @@ export const verifySignInCode = async (email: string, code: string): Promise<voi
   sessionActions().signedIn({ me: result.me, circles, isNewUser: result.isNewUser });
 };
 
-export const saveDisplayName = async (displayName: string): Promise<void> => {
-  const me = await api.request(routes.me, { method: 'PATCH', body: { displayName } }, meSchema);
-  sessionActions().me(me);
-};
+export const saveDisplayName = (displayName: string): Promise<void> =>
+  updateProfile({ displayName });
 
 export const createCircle = async (name: string, kind: CircleKind): Promise<void> => {
   const circle = await api.request(
@@ -105,6 +106,36 @@ export const acceptInvite = async (code: string): Promise<void> => {
   sessionActions().circleJoined(circle);
 };
 
+export const updateProfile = async (update: UpdateMe): Promise<void> => {
+  const me = await api.request(routes.me, { method: 'PATCH', body: update }, meSchema);
+  sessionActions().me(me);
+};
+
+export const listDevices = () => api.request(routes.devices, {}, deviceListSchema);
+
+export const revokeDevice = (deviceId: string): Promise<void> =>
+  api.request(routes.device(deviceId), { method: 'DELETE' });
+
+/**
+ * The server drops this user's sockets after a leave, and the client
+ * reconnects without the circle. Presence is cleared here so the left
+ * circle's members cannot linger on screen until that reconnect lands.
+ */
+export const leaveCircle = async (circleId: string): Promise<void> => {
+  await api.request(routes.leaveCircle(circleId), { method: 'POST' });
+  presenceActions().reset();
+  sessionActions().circleLeft(circleId);
+};
+
+/** Everything a signed-out device should not keep. */
+const clearLocalSession = async (): Promise<void> => {
+  await stopTracking().catch(() => undefined);
+  disconnectRealtime();
+  await secureTokenStore.clear();
+  presenceActions().reset();
+  sessionActions().signedOut();
+};
+
 /**
  * Local sign-out always completes. Telling the server is best effort: a
  * phone with no signal must still be able to sign out, and the session it
@@ -113,7 +144,15 @@ export const acceptInvite = async (code: string): Promise<void> => {
 export const signOut = async (): Promise<void> => {
   disconnectRealtime();
   await api.request(routes.signOut, { method: 'POST' }).catch(() => undefined);
-  await secureTokenStore.clear();
-  presenceActions().reset();
-  sessionActions().signedOut();
+  await clearLocalSession();
+};
+
+/**
+ * Unlike sign-out, deletion is not best effort: the server must confirm it
+ * before anything local is cleared, or someone could believe their account
+ * and location were erased when the request never arrived.
+ */
+export const deleteAccount = async (): Promise<void> => {
+  await api.request(routes.me, { method: 'DELETE' });
+  await clearLocalSession();
 };

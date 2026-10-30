@@ -1,4 +1,5 @@
 import { randomInt } from 'node:crypto';
+import { ACCENT_COLORS } from '@haven/contracts';
 
 /**
  * Defaults for a brand-new account. The app asks for a real name right after
@@ -24,9 +25,18 @@ export const defaultDisplayName = (email: string): string => {
 
 /**
  * The accent a person carries into every circle: their Battery Ring and
- * avatar fill. The brand pastels, so any avatar sits naturally on the map.
- * Resolved once at signup (docs/01 §5) so they look the same everywhere.
+ * avatar fill. Picked at signup (docs/01 §5) so they look the same
+ * everywhere, and changeable later from the profile screen.
  */
-export const ACCENTS = ['#FFAD8F', '#7CF5C8', '#B9A7FF', '#FFD27A', '#FFB4A2'] as const;
+export const pickAccent = (): string => ACCENT_COLORS[randomInt(ACCENT_COLORS.length)]!;
 
-export const pickAccent = (): string => ACCENTS[randomInt(ACCENTS.length)]!;
+/**
+ * What a deleted account's row becomes. The row itself stays, because
+ * circles and nudges reference it, but nothing in it identifies the person
+ * any more. Rewriting the email (rather than nulling it, which the
+ * users_need_an_identifier CHECK forbids) frees the real address, so the
+ * same person can sign up again later as someone new.
+ */
+export const DELETED_DISPLAY_NAME = 'Former member';
+
+export const tombstoneEmail = (userId: string): string => `deleted+${userId}@deleted.invalid`;

@@ -80,8 +80,40 @@ export const signInResultSchema = z.object({
 
 export type SignInResult = z.infer<typeof signInResultSchema>;
 
-export const updateMeSchema = z.object({
-  displayName: z.string().trim().min(1).max(40),
-});
+/**
+ * The accents a person can wear: the brand pastels, so every avatar sits
+ * naturally on the map. A closed list rather than any hex, because each one
+ * is checked for contrast (initials on the fill, ring on the map).
+ */
+export const ACCENT_COLORS = ['#FFAD8F', '#7CF5C8', '#B9A7FF', '#FFD27A', '#FFB4A2'] as const;
+
+export const updateMeSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(40).optional(),
+    accentHex: z.enum(ACCENT_COLORS).optional(),
+  })
+  .refine((update) => update.displayName !== undefined || update.accentHex !== undefined, {
+    message: 'nothing to update',
+  });
 
 export type UpdateMe = z.infer<typeof updateMeSchema>;
+
+// ---------------------------------------------------------------------------
+// Devices
+// ---------------------------------------------------------------------------
+
+/** One signed-in device, for "where am I signed in?" and signing others out. */
+export const deviceSummarySchema = z.object({
+  deviceId: z.uuid(),
+  platform: devicePlatformSchema,
+  osVersion: z.string().nullable(),
+  appVersion: z.string().nullable(),
+  signedInAt: isoInstant,
+  lastActiveAt: isoInstant.nullable(),
+  /** The device making the request. It signs out through sign-out, not here. */
+  current: z.boolean(),
+});
+
+export type DeviceSummary = z.infer<typeof deviceSummarySchema>;
+
+export const deviceListSchema = z.array(deviceSummarySchema).max(50);

@@ -1,6 +1,5 @@
 import {
   NUDGE_RATE_LIMIT,
-  circleRoom,
   nudgeAckSchema,
   sendNudgeSchema,
   userRoom,
@@ -120,10 +119,12 @@ export const handleSendNudge = async (
   const muted = await mutedRecipients({ circleId, userIds: allRecipients });
   const recipients = allRecipients.filter((id) => !muted.has(id));
 
-  if (toUserId) {
-    io.to(userRoom(toUserId)).emit('nudge:received', event);
-  } else {
-    io.to(circleRoom(circleId)).except(userRoom(fromUserId)).emit('nudge:received', event);
+  // Addressed per recipient, never to the circle room, so a mute holds for
+  // live sockets too: a muted member must not get the buzz just because
+  // their app happens to be open. The guard matters: Socket.IO treats an
+  // empty room list as "no filter" and would broadcast to every socket.
+  if (recipients.length > 0) {
+    io.to(recipients.map(userRoom)).emit('nudge:received', event);
   }
 
   // Push anyone who has no live socket. Muted members are already filtered,
